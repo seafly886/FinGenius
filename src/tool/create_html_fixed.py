@@ -25,6 +25,172 @@ from src.llm import LLM
 from src.tool.base import BaseTool, ToolResult
 from src.utils.report_manager import report_manager
 
+"""
+数据缓存与实时更新策略
+"""
+import json
+import time
+import os
+from typing import Dict, Optional, Any
+from datetime import datetime, timedelta
+
+class DataCacheManager:
+    """数据缓存管理器"""
+    
+    def __init__(self, cache_dir: str = "cache"):
+        self.cache_dir = cache_dir
+        self.ensure_cache_dir()
+        
+        # 缓存配置
+        self.cache_config = {
+            "chip_analysis": {"ttl": 300, "max_age": 900},      # 5分钟TTL，15分钟最大age
+            "stock_info": {"ttl": 60, "max_age": 180},           # 1分钟TTL，3分钟最大age
+            "sentiment_data": {"ttl": 600, "max_age": 1800},     # 10分钟TTL，30分钟最大age
+            "technical_analysis": {"ttl": 180, "max_age": 600},  # 3分钟TTL，10分钟最大age
+            "risk_control": {"ttl": 120, "max_age": 360},        # 2分钟TTL，6分钟最大age
+        }
+    
+    def ensure_cache_dir(self):
+        """确保缓存目录存在"""
+        if not os.path.exists(self.cache_dir):
+            os.makedirs(self.cache_dir)
+    
+    def get_cache_key(self, data_type: str, stock_code: str, **kwargs) -> str:
+        """生成缓存键"""
+        params = "_".join([f"{k}={v}" for k, v in sorted(kwargs.items())])
+        return f"{data_type}_{stock_code}_{params}" if params else f"{data_type}_{stock_code}"
+    
+    def get_cache_file(self, cache_key: str) -> str:
+        """获取缓存文件路径"""
+        return os.path.join(self.cache_dir, f"{cache_key}.json")
+    
+    def get_cached_data(self, data_type: str, stock_code: str, **kwargs) -> Optional[Dict]:
+        """获取缓存数据"""
+        try:
+            cache_key = self.get_cache_key(data_type, stock_code, **kwargs)
+            cache_file = self.get_cache_file(cache_key)
+            
+            if not os.path.exists(cache_file):
+                return None
+            
+            with open(cache_file, 'r', encoding='utf-8') as f:
+                cached_data = json.load(f)
+            
+            # 检查缓存是否过期
+            cache_time = cached_data.get('cache_time', 0)
+            current_time = time.time()
+            
+            config = self.cache_config.get(data_type, {"ttl": 300, "max_age": 900})
+            
+            # 硬过期检查
+            if current_time - cache_time > config['max_age']:
+                self.remove_cache(cache_key)
+                return None
+            
+            # 软过期检查 - 返回但标记为过期
+            if current_time - cache_time > config['ttl']:
+                cached_data['is_stale'] = True
+            else:
+                cached_data['is_stale'] = False
+            
+            return cached_data
+            
+        except Exception as e:
+            print(f"获取缓存数据失败: {str(e)}")
+            return None
+    
+    def set_cached_data(self, data_type: str, stock_code: str, data: Any, **kwargs):
+        """设置缓存数据"""
+        try:
+            cache_key = self.get_cache_key(data_type, stock_code, **kwargs)
+            cache_file = self.get_cache_file(cache_key)
+            
+            cache_data = {
+                "cache_time": time.time(),
+                "data_type": data_type,
+                "stock_code": stock_code,
+                "data": data,
+                "metadata": kwargs
+            }
+            
+            with open(cache_file, 'w', encoding='utf-8') as f:
+                json.dump(cache_data, f, ensure_ascii=False, indent=2)
+                
+        except Exception as e:
+            print(f"设置缓存数据失败: {str(e)}")
+    
+    def remove_cache(self, cache_key: str):
+        """删除缓存"""
+        try:
+            cache_file = self.get_cache_file(cache_key)
+            if os.path.exists(cache_file):
+                os.remove(cache_file)
+        except Exception as e:
+            print(f"删除缓存失败: {str(e)}")
+    
+    def cleanup_expired_cache(self):
+        """清理过期缓存"""
+        try:
+            current_time = time.time()
+            
+            for filename in os.listdir(self.cache_dir):
+                if filename.endswith('.json'):
+                    file_path = os.path.join(self.cache_dir, filename)
+                    
+                    try:
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            cached_data = json.load(f)
+                        
+                        cache_time = cached_data.get('cache_time', 0)
+                        data_type = cached_data.get('data_type', 'unknown')
+                        
+                        config = self.cache_config.get(data_type, {"ttl": 300, "max_age": 900})
+                        
+                        if current_time - cache_time > config['max_age']:
+                            os.remove(file_path)
+                            
+                    except Exception:
+                        # 如果文件损坏，删除它
+                        os.remove(file_path)
+                        
+        except Exception as e:
+            print(f"清理过期缓存失败: {str(e)}")
+
+# 全局缓存管理器实例
+cache_manager = DataCacheManager()
+
+def with_cache(data_type: str):
+    """缓存装饰器"""
+    def decorator(func):
+        async def wrapper(self, stock_code: str, **kwargs):
+            # 尝试从缓存获取数据
+            cached_data = cache_manager.get_cached_data(data_type, stock_code, **kwargs)
+            
+            if cached_data and not cached_data.get('is_stale', False):
+                print(f"使用缓存数据: {data_type}_{stock_code}")
+                return cached_data['data']
+            
+            # 执行原始函数
+            try:
+                result = await func(self, stock_code, **kwargs)
+                
+                # 缓存结果
+                if result:
+                    cache_manager.set_cached_data(data_type, stock_code, result, **kwargs)
+                
+                return result
+                
+            except Exception as e:
+                # 如果有过期但可用的缓存，返回缓存数据
+                if cached_data and cached_data.get('is_stale', False):
+                    print(f"使用过期缓存数据作为fallback: {data_type}_{stock_code}")
+                    return cached_data['data']
+                
+                raise e
+        
+        return wrapper
+    return decorator
+
 
 class CreateHtmlTool(BaseTool):
     """HTML generation tool that creates beautiful and functional HTML pages
@@ -116,52 +282,47 @@ class CreateHtmlTool(BaseTool):
             raise
 
     def _extract_html_code(self, response: str) -> str:
-        """Extract HTML code from LLM response with enhanced parsing and strict boundary detection"""
+        """Extract HTML code from LLM response with enhanced parsing and no truncation"""
         logger.info(f"Extracting HTML from response, length: {len(response)}")
         
-        # Method 1: Look for complete HTML structure with strict boundaries
-        html_complete_patterns = [
-            r"(<!DOCTYPE\s+html.*?</html>)\s*(?:\n|$)",
-            r"(<!doctype\s+html.*?</html>)\s*(?:\n|$)",
-            r"(<html[^>]*>.*?</html>)\s*(?:\n|$)"
-        ]
-        
-        for pattern in html_complete_patterns:
-            match = re.search(pattern, response, re.DOTALL | re.IGNORECASE)
-            if match:
-                html_content = match.group(1).strip()
-                logger.info(f"Found complete HTML structure, length: {len(html_content)}")
-                
-                # 严格检查HTML边界，确保不包含JSON数据
-                if self._is_clean_html(html_content) and self._validate_html_completeness(html_content):
-                    return self._fix_encoding(html_content)
-                else:
-                    logger.warning(f"HTML structure incomplete or contaminated, trying next method...")
-        
-        # Method 2: Check for HTML code blocks with strict boundaries
+        # Method 1: Check for HTML code block with various formats (non-greedy matching)
         html_block_patterns = [
             r"```html\s*\n(.*?)\n```",
             r"```HTML\s*\n(.*?)\n```", 
             r"```\s*html\s*\n(.*?)\n```",
-            r"```\s*\n(<!DOCTYPE.*?</html>)\n```",
+            r"```\s*\n(<!DOCTYPE.*?)\n```",
+            # 新增：支持没有结束标记的代码块
+            r"```html\s*\n(.*?)(?:\n```|$)",
+            r"```HTML\s*\n(.*?)(?:\n```|$)",
         ]
         
         for pattern in html_block_patterns:
             match = re.search(pattern, response, re.DOTALL | re.IGNORECASE)
             if match:
                 html_content = match.group(1).strip()
-                logger.info(f"Found HTML in code block, length: {len(html_content)}")
-                
-                # 检查是否为干净的HTML
-                if self._is_clean_html(html_content):
-                    # 如果代码块中的HTML不完整，尝试修复
-                    if not html_content.strip().endswith("</html>"):
-                        html_content = self._complete_html_structure(html_content)
-                    
-                    if self._validate_html_completeness(html_content):
-                        return self._fix_encoding(html_content)
+                logger.info(f"Found HTML in code block using pattern: {pattern[:20]}..., content length: {len(html_content)}")
+                # 验证HTML完整性
+                if self._validate_html_completeness(html_content):
+                    return self._fix_encoding(html_content)
+                else:
+                    logger.warning(f"HTML content appears incomplete, trying next pattern...")
+                    continue
         
-        # Method 3: Enhanced fallback with strict boundary detection
+        # Method 2: Look for direct HTML content (greedy matching to get full content)
+        html_start_patterns = [
+            r"(<!DOCTYPE\s+html.*?</html>)",
+            r"(<html[^>]*>.*?</html>)",
+            r"(<!doctype\s+html.*?</html>)"
+        ]
+        
+        for pattern in html_start_patterns:
+            match = re.search(pattern, response, re.DOTALL | re.IGNORECASE)
+            if match:
+                html_content = match.group(1).strip()
+                logger.info(f"Found complete HTML using pattern: {pattern[:20]}..., content length: {len(html_content)}")
+                return self._fix_encoding(html_content)
+        
+        # Method 3: Enhanced fallback - look for HTML structure and extract to end
         if "<html" in response.lower() or "<!doctype" in response.lower():
             # Find the start position
             start_markers = ["<!DOCTYPE", "<!doctype", "<html", "<HTML"]
@@ -173,154 +334,25 @@ class CreateHtmlTool(BaseTool):
                     break
             
             if start_pos != -1:
-                # 查找HTML结束位置 - 使用最后一个</html>，但要确保不包含JSON
+                # 查找HTML结束位置
                 html_end_pos = response.lower().rfind("</html>")
                 if html_end_pos != -1:
                     html_content = response[start_pos:html_end_pos + 7].strip()
-                    
-                    # 检查提取的内容是否干净
-                    if self._is_clean_html(html_content):
-                        logger.info(f"Extracted clean HTML from position {start_pos} to {html_end_pos}, length: {len(html_content)}")
-                        return self._fix_encoding(html_content)
-                    else:
-                        logger.warning("Extracted HTML contains non-HTML content, attempting cleanup...")
-                        cleaned_html = self._clean_html_content(html_content)
-                        if cleaned_html and self._validate_html_completeness(cleaned_html):
-                            return self._fix_encoding(cleaned_html)
+                    logger.info(f"Found complete HTML from position {start_pos} to {html_end_pos}, length: {len(html_content)}")
+                else:
+                    # 如果没有找到结束标签，取到响应末尾
+                    html_content = response[start_pos:].strip()
+                    logger.info(f"Found HTML from position {start_pos} to end, length: {len(html_content)}")
                 
-                # 如果没有找到结束标签，构建完整HTML
-                html_content = self._extract_html_until_contamination(response[start_pos:])
-                if html_content:
-                    completed_html = self._complete_html_structure(html_content)
-                    logger.info(f"Constructed HTML with missing tags, length: {len(completed_html)}")
-                    return self._fix_encoding(completed_html)
+                return self._fix_encoding(html_content)
         
-        # Method 4: Last resort - create basic HTML wrapper
-        logger.warning(f"No clean HTML structure found, creating basic wrapper")
-        basic_html = f"""<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <title>FinGenius Report</title>
-</head>
-<body>
-    <div class="container">
-        <h1>分析报告</h1>
-        <pre>{response[:10000]}...</pre>
-    </div>
-</body>
-</html>"""
-        logger.info("Created basic HTML wrapper")
-        return self._fix_encoding(basic_html)
-    
-    def _is_clean_html(self, content: str) -> bool:
-        """检查内容是否为干净的HTML（不包含JSON数据等）"""
-        try:
-            # 检查是否包含明显的JSON结构
-            json_indicators = [
-                '"stock_code":',
-                '"research_results":',
-                '"battle_results":',
-                '{"stock_code"',
-                'const data = {',
-                'window.reportData ='
-            ]
-            
-            content_lower = content.lower()
-            for indicator in json_indicators:
-                if indicator.lower() in content_lower:
-                    logger.warning(f"Found JSON indicator in HTML: {indicator}")
-                    return False
-            
-            # 检查HTML结构完整性
-            has_proper_ending = content.strip().endswith("</html>")
-            has_proper_structure = "<html" in content_lower and "<head" in content_lower
-            
-            return has_proper_ending and has_proper_structure
-            
-        except Exception as e:
-            logger.error(f"Error checking HTML cleanliness: {e}")
-            return False
-    
-    def _clean_html_content(self, html_content: str) -> str:
-        """清理HTML内容，移除JSON数据污染"""
-        try:
-            # 查找HTML结构的真正结束位置
-            # 寻找最后一个有效的HTML标签
-            valid_endings = ["</html>", "</body>", "</div>", "</script>"]
-            
-            for ending in valid_endings:
-                last_pos = html_content.lower().rfind(ending.lower())
-                if last_pos != -1:
-                    # 找到结束标签后，检查后面是否有JSON数据
-                    after_tag = html_content[last_pos + len(ending):].strip()
-                    if after_tag and ('{' in after_tag or '"' in after_tag):
-                        # 截断到HTML标签结束
-                        cleaned = html_content[:last_pos + len(ending)]
-                        logger.info(f"Cleaned HTML by removing {len(after_tag)} characters of JSON data")
-                        return self._complete_html_structure(cleaned)
-            
-            return html_content
-            
-        except Exception as e:
-            logger.error(f"Error cleaning HTML content: {e}")
-            return html_content
-    
-    def _extract_html_until_contamination(self, content: str) -> str:
-        """提取HTML内容直到遇到JSON数据污染"""
-        try:
-            # 查找JSON数据开始的位置
-            json_start_patterns = [
-                r'const\s+data\s*=\s*{',
-                r'window\.reportData\s*=\s*{',
-                r'{\s*"stock_code"\s*:',
-                r'{\s*"research_results"\s*:'
-            ]
-            
-            earliest_json_pos = len(content)
-            
-            for pattern in json_start_patterns:
-                match = re.search(pattern, content, re.IGNORECASE)
-                if match:
-                    earliest_json_pos = min(earliest_json_pos, match.start())
-            
-            if earliest_json_pos < len(content):
-                logger.info(f"Found JSON contamination at position {earliest_json_pos}, truncating HTML")
-                return content[:earliest_json_pos].strip()
-            
-            return content
-            
-        except Exception as e:
-            logger.error(f"Error extracting HTML until contamination: {e}")
-            return content
-    
-    def _complete_html_structure(self, html_content: str) -> str:
-        """补全HTML结构的缺失标签"""
-        try:
-            content = html_content.strip()
-            
-            # 检查并添加缺失的结束标签
-            if "</body>" not in content.lower() and "<body" in content.lower():
-                content += "\n</body>"
-                logger.info("Added missing </body> tag")
-            
-            if "</html>" not in content.lower() and "<html" in content.lower():
-                content += "\n</html>"
-                logger.info("Added missing </html> tag")
-            
-            return content
-            
-        except Exception as e:
-            logger.error(f"Error completing HTML structure: {e}")
-            return html_content
+        # Method 4: Last resort - return full response but log warning
+        logger.warning(f"No clear HTML structure found, returning full response (length: {len(response)})")
+        return self._fix_encoding(response)
     
     def _validate_html_completeness(self, html_content: str) -> bool:
-        """验证HTML内容的完整性 - 优化版本"""
+        """验证HTML内容的完整性"""
         try:
-            if not html_content or len(html_content) < 500:
-                logger.warning(f"HTML content too short: {len(html_content)} characters")
-                return False
-            
             # 检查基本HTML结构
             has_doctype = "<!doctype" in html_content.lower() or "<!DOCTYPE" in html_content
             has_html_start = "<html" in html_content.lower()
@@ -331,41 +363,20 @@ class CreateHtmlTool(BaseTool):
             # 基本完整性检查
             basic_complete = has_html_start and has_html_end and has_head and has_body
             
-            # 更精确的截断检查
-            content_end = html_content.strip()[-50:].lower()  # 检查最后50个字符
-            
-            # 正常结束的标志
-            normal_endings = [
-                "</html>",
-                "</body></html>", 
-                "</div></body></html>",
-                "</script></body></html>"
-            ]
-            
-            has_normal_ending = any(ending in content_end for ending in normal_endings)
-            
-            # 异常截断的标志
+            # 检查是否被截断（常见的截断标志）
             truncation_indicators = [
-                content_end.endswith("..."),
-                content_end.endswith("</"),
-                content_end.endswith("<"),
-                content_end.endswith("/*"),  # CSS注释未闭合
-                content_end.endswith("//"),  # JS注释行
-                '"' in content_end and content_end.count('"') % 2 != 0,  # 未闭合的引号
-                "'" in content_end and content_end.count("'") % 2 != 0,   # 未闭合的单引号
+                html_content.endswith("..."),
+                html_content.endswith("</"),
+                html_content.endswith("<"),
+                not html_content.endswith(">") and not html_content.endswith("</html>"),
+                len(html_content) < 1000  # 太短可能不完整
             ]
             
             is_truncated = any(truncation_indicators)
             
-            # 对于大文件，如果有基本结构且正常结束，认为完整
-            if len(html_content) > 50000:  # 大文件特殊处理
-                is_complete = basic_complete and has_normal_ending and not is_truncated
-                logger.info(f"Large HTML file ({len(html_content)} chars) - Basic: {basic_complete}, Normal ending: {has_normal_ending}, Truncated: {is_truncated}, Complete: {is_complete}")
-            else:
-                is_complete = basic_complete and not is_truncated
-                logger.info(f"HTML completeness check - Basic: {basic_complete}, Truncated: {is_truncated}, Complete: {is_complete}")
+            logger.info(f"HTML completeness check - Basic: {basic_complete}, Truncated: {is_truncated}")
             
-            return is_complete
+            return basic_complete and not is_truncated
             
         except Exception as e:
             logger.error(f"Error validating HTML completeness: {e}")
@@ -454,8 +465,8 @@ class CreateHtmlTool(BaseTool):
                     (r'window\.(pageData|reportData)\s*=\s*\{\}\s*;', f'window.\\1 = {safe_data};'),
                     # 带注释的占位符
                     (r'(\b(?:const|let|var)\s+reportData\s*=\s*)\{\}(\s*;?\s*//[^\n]*)', f'\\1{safe_data}\\2'),
-                    # 模板中的特殊注释 - 简化的数据注入模式
-                    (r'//\s*页面数据注入点[^\n]*\n', f'// 页面数据注入点\n        window.reportData = {safe_data};\n        console.log("报告数据已注入:", window.reportData);\n'),
+                    # 模板中的特殊注释
+                    (r'//\s*页面数据注入点[^\n]*\n', f'// 页面数据注入点\n        const reportData = {safe_data};\n'),
                 ]
                 
                 for i, (pattern, replacement) in enumerate(injection_patterns):
@@ -647,177 +658,3 @@ class CreateHtmlTool(BaseTool):
             stock_code = "unknown"
             if data and isinstance(data, dict):
                 stock_code = data.get("stock_code", "unknown")
-            
-            # 准备元数据
-            metadata = {
-                "original_path": filepath,
-                "content_type": "html",
-                "data_size": len(html_content.encode('utf-8')),
-                "has_data": bool(data),
-                "generated_by": "create_html_tool"
-            }
-            
-            if data:
-                metadata["data_keys"] = list(data.keys()) if isinstance(data, dict) else []
-            
-            # 使用新的HTML报告保存方法
-            success = report_manager.save_html_report(
-                stock_code=stock_code,
-                html_content=html_content,
-                metadata=metadata
-            )
-            
-            if success:
-                # 生成预期的文件路径
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"html_{stock_code}_{timestamp}.html"
-                saved_path = report_manager.get_report_path("html", filename)
-                logger.info(f"HTML report saved to: {saved_path}")
-                return f"HTML report saved to: {saved_path}"
-            else:
-                return "Failed to save HTML report"
-                
-        except Exception as e:
-            error_msg = f"Failed to save HTML report: {str(e)}"
-            logger.error(error_msg)
-            return error_msg
-
-    async def _save_html_to_file(self, html_content: str, filepath: str) -> str:
-        """Save generated HTML to a file"""
-        try:
-            # Ensure directory exists
-            os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
-
-            # Save with UTF-8 encoding
-            with open(filepath, "w", encoding="utf-8") as f:
-                f.write(html_content)
-
-            return f"HTML successfully saved to: {filepath}"
-        except Exception as e:
-            logger.error(f"Error saving HTML file: {e}")
-            return f"Failed to save HTML file: {e}"
-
-    async def execute(
-        self,
-        request: str,
-        data: Optional[Dict[str, Any]] = None,
-        output_path: str = "",
-        reference: str = "",
-        additional_requirements: str = "",
-        **kwargs,
-    ) -> ToolResult:
-        """Execute HTML generation operation with enhanced error handling and validation
-
-        Args:
-            request: Detailed description of the HTML page requirements
-            data: Optional data to display in the page
-            output_path: Optional path to save the HTML file
-            reference: Optional reference design or layout
-            additional_requirements: Optional additional requirements
-
-        Returns:
-            ToolResult: Result containing the generated HTML or error message
-        """
-        try:
-            logger.info(f"Starting HTML generation for request: {request[:100]}...")
-            
-            # Validate input parameters
-            if not request or not request.strip():
-                raise ValueError("Request cannot be empty")
-            
-            # Prepare additional context
-            additional_context = {}
-            if data:
-                additional_context["data"] = data
-                logger.info(f"Data provided with keys: {list(data.keys()) if isinstance(data, dict) else 'non-dict'}")
-            if reference:
-                additional_context["reference"] = reference
-                logger.info("Reference design provided")
-            if additional_requirements:
-                additional_context["requirements"] = additional_requirements
-                logger.info("Additional requirements provided")
-
-            # Generate HTML
-            logger.info("Generating HTML content...")
-            html_content = await self._generate_html(
-                request=request,
-                additional_context=additional_context if additional_context else None,
-            )
-            
-            if not html_content or not html_content.strip():
-                raise ValueError("Generated HTML content is empty")
-            
-            logger.info(f"HTML generated successfully, length: {len(html_content)}")
-            
-            # Validate HTML structure
-            is_valid_structure = self._validate_html_structure(html_content)
-            if not is_valid_structure:
-                logger.warning("Generated HTML has structural issues, but proceeding...")
-            
-            # Inject data into HTML if available
-            if data:
-                logger.info("Injecting data into HTML...")
-                original_length = len(html_content)
-                html_content = self._inject_data_into_html(html_content, data)
-                logger.info(f"Data injection completed, length change: {len(html_content) - original_length}")
-            
-            # Final validation
-            final_validation = self._validate_html_structure(html_content)
-            logger.info(f"Final HTML validation: {'✅ PASSED' if final_validation else '⚠️ ISSUES DETECTED'}")
-
-            # Save to file if path provided
-            result_message = ""
-            if output_path:
-                logger.info(f"Saving HTML to: {output_path}")
-                try:
-                    # 优先使用报告管理器保存
-                    if self._is_report_path(output_path):
-                        save_result = self._save_with_report_manager(
-                            html_content, output_path, data
-                        )
-                    else:
-                        save_result = await self._save_html_to_file(
-                            html_content=html_content, filepath=output_path
-                        )
-                    result_message = f"\n{save_result}"
-                    logger.info(f"File saved successfully: {save_result}")
-                except Exception as save_error:
-                    logger.error(f"Failed to save file: {save_error}")
-                    result_message = f"\nWarning: Failed to save file - {save_error}"
-
-            # Prepare success result
-            success_message = f"HTML generation successful, length: {len(html_content)} characters"
-            if not final_validation:
-                success_message += " (with structural warnings)"
-            success_message += result_message
-            
-            logger.info("HTML generation completed successfully")
-            
-            # Return success result
-            return ToolResult(
-                output={
-                    "html_content": html_content,
-                    "saved_to": output_path if output_path else None,
-                    "message": success_message,
-                    "validation_passed": final_validation,
-                    "content_length": len(html_content)
-                }
-            )
-
-        except Exception as e:
-            error_msg = f"HTML generation failed: {str(e)}"
-            logger.error(error_msg)
-            import traceback
-            logger.error(f"Traceback: {traceback.format_exc()}")
-            
-            # Return detailed error information
-            return ToolResult(
-                error=error_msg,
-                output={
-                    "error_type": type(e).__name__,
-                    "error_details": str(e),
-                    "request_length": len(request) if request else 0,
-                    "has_data": bool(data),
-                    "output_path": output_path
-                }
-            )

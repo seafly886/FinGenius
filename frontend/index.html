@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FinGenius 股票分析系统</title>
+    <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        .console-output {
+            background-color: #ffffff;
+            color: #333333;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+        }
+        .loading-spinner {
+            border: 3px solid #f3f3f4;
+            border-top: 3px solid #3b82f6;
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .input-group {
+            display: flex;
+            align-items: end;
+            gap: 1rem;
+        }
+        .input-wrapper {
+            flex: 1;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 8px 15px -3px rgba(0, 0, 0, 0.2);
+        }
+        .card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+        }
+        .card:hover {
+            box-shadow: 0 10px 25px -3px rgba(0, 0, 0, 0.1);
+        }
+        .tab-active {
+            border-bottom: 3px solid #3b82f6;
+            color: #1d4ed8;
+        }
+        .report-card {
+            transition: all 0.2s ease;
+        }
+        .report-card:hover {
+            transform: translateY(-2px);
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-gray-50 to-blue-50 min-h-screen">
+    <div id="app">
+        <div class="container mx-auto px-4 py-8">
+            <!-- 头部 -->
+            <div class="text-center mb-8">
+                <div class="gradient-bg text-white py-8 px-6 rounded-2xl mb-8">
+                    <h1 class="text-5xl font-bold mb-3">FinGenius</h1>
+                    <p class="text-xl opacity-90">AI驱动的智能股票分析系统</p>
+                    <div class="mt-4 flex justify-center space-x-6 text-sm">
+                        <span class="flex items-center"><span class="mr-1">🤖</span>多专家代理</span>
+                        <span class="flex items-center"><span class="mr-1">📊</span>深度分析</span>
+                        <span class="flex items-center"><span class="mr-1">⚡</span>实时输出</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 导航标签 -->
+            <div class="flex justify-center mb-8">
+                <div class="bg-white rounded-lg shadow-md inline-flex">
+                    <button 
+                        @click="activeTab = 'analysis'" 
+                        :class="{'tab-active': activeTab === 'analysis'}"
+                        class="px-6 py-3 font-medium text-gray-700 hover:text-blue-600 transition-colors">
+                        股票分析
+                    </button>
+                    <button 
+                        @click="activeTab = 'history'" 
+                        :class="{'tab-active': activeTab === 'history'}"
+                        class="px-6 py-3 font-medium text-gray-700 hover:text-blue-600 transition-colors">
+                        历史报告
+                    </button>
+                </div>
+            </div>
+
+            <!-- 股票分析标签页 -->
+            <div v-if="activeTab === 'analysis'">
+                <!-- 输入区域 -->
+                <div class="card p-8 mb-8">
+                    <div class="input-group mb-6">
+                        <div class="input-wrapper">
+                            <label for="stockCode" class="block text-sm font-semibold text-gray-700 mb-3">
+                                股票代码
+                            </label>
+                            <input
+                                id="stockCode"
+                                v-model="stockCode"
+                                type="text"
+                                placeholder="请输入股票代码，如：000001"
+                                class="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                                @keyup.enter="startAnalysis"
+                                :disabled="isAnalyzing"
+                            />
+                        </div>
+                        <div class="flex-shrink-0">
+                            <button
+                                @click="startAnalysis"
+                                :disabled="isAnalyzing || !stockCode.trim()"
+                                class="btn-primary px-8 py-3 text-white rounded-lg disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center space-x-2 font-medium"
+                            >
+                                <div v-if="isAnalyzing" class="loading-spinner"></div>
+                                <span>{{ isAnalyzing ? '分析中...' : '一键分析' }}</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 高级选项 -->
+                    <div>
+                        <button 
+                            @click="showAdvancedOptions = !showAdvancedOptions" 
+                            class="flex items-center text-sm text-gray-600 hover:text-blue-600 transition-colors">
+                            <span v-if="showAdvancedOptions">▼</span>
+                            <span v-else>▶</span>
+                            <span class="ml-1">高级选项</span>
+                        </button>
+                        
+                        <div v-if="showAdvancedOptions" class="mt-4 p-4 bg-gray-50 rounded-lg">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        输出格式
+                                    </label>
+                                    <select 
+                                        v-model="options.format" 
+                                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                        <option value="text">文本 (text)</option>
+                                        <option value="json">JSON</option>
+                                    </select>
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        保存结果到文件
+                                    </label>
+                                    <input 
+                                        v-model="options.output" 
+                                        type="text" 
+                                        placeholder="输出文件路径 (可选)" 
+                                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        每个智能体的最大步数
+                                    </label>
+                                    <input 
+                                        v-model.number="options.maxSteps" 
+                                        type="number" 
+                                        min="1" 
+                                        max="10" 
+                                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        辩论轮数
+                                    </label>
+                                    <input 
+                                        v-model.number="options.debateRounds" 
+                                        type="number" 
+                                        min="1" 
+                                        max="5" 
+                                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                </div>
+                                
+                                <div class="col-span-1 md:col-span-2">
+                                    <label class="flex items-center">
+                                        <input 
+                                            v-model="options.tts" 
+                                            type="checkbox" 
+                                            class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
+                                        <span class="ml-2 text-sm text-gray-700">启用文本转语音播报最终结果</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 实时输出区域 -->
+                <div v-if="showOutput" class="card mb-8">
+                    <div class="p-6 border-b border-gray-100">
+                        <h3 class="text-xl font-bold text-gray-800 flex items-center">
+                            <span class="mr-3 text-2xl">📊</span>
+                            实时分析输出
+                            <button
+                                @click="clearOutput"
+                                class="ml-auto px-4 py-2 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
+                            >
+                                清空输出
+                            </button>
+                        </h3>
+                    </div>
+                    <div class="console-output p-6 h-96 overflow-y-auto" ref="outputContainer">
+                        {{ output }}
+                    </div>
+                </div>
+
+                <!-- 分析报告区域 -->
+                <div v-if="reportPath" class="card mb-8">
+                    <div class="p-6 border-b border-gray-100">
+                        <h3 class="text-xl font-bold text-gray-800 flex items-center">
+                            <span class="mr-3 text-2xl">📋</span>
+                            分析报告
+                        </h3>
+                    </div>
+                    <div class="p-6">
+                        <div class="flex items-center justify-between mb-6">
+                            <div class="flex items-center">
+                                <span class="text-green-600 mr-2">✅</span>
+                                <span class="text-sm text-gray-700 font-medium">
+                                    报告已生成：{{ reportPath }}
+                                </span>
+                            </div>
+                            <div class="space-x-3">
+                                <button
+                                    @click="downloadReport"
+                                    class="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
+                                >
+                                    📥 下载报告
+                                </button>
+                                <button
+                                    @click="viewReport"
+                                    class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                                >
+                                    👁️ 查看报告
+                                </button>
+                            </div>
+                        </div>
+                        <div v-if="reportContent" class="border-2 border-gray-200 rounded-lg p-6 bg-gray-50">
+                            <pre class="whitespace-pre-wrap text-sm text-gray-700">{{ reportContent }}</pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 历史报告标签页 -->
+            <div v-if="activeTab === 'history'">
+                <div class="card p-6 mb-8">
+                    <h3 class="text-xl font-bold text-gray-800 mb-6 flex items-center">
+                        <span class="mr-3 text-2xl">📚</span>
+                        历史分析报告
+                    </h3>
+                    
+                    <div v-if="historyReports.length === 0" class="text-center py-12">
+                        <div class="text-gray-400 text-6xl mb-4">📂</div>
+                        <p class="text-gray-500">暂无历史报告</p>
+                        <button 
+                            @click="loadHistoryReports" 
+                            class="mt-4 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium">
+                            刷新列表
+                        </button>
+                    </div>
+                    
+                    <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        <div 
+                            v-for="(report, index) in historyReports" 
+                            :key="index"
+                            class="report-card bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm hover:shadow-md">
+                            <div class="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-200">
+                                <h4 class="font-bold text-gray-800">{{ report.stockCode }}</h4>
+                                <p class="text-xs text-gray-500">{{ report.date }}</p>
+                            </div>
+                            <div class="p-4">
+                                <p class="text-sm text-gray-600 mb-4 line-clamp-3">{{ report.summary }}</p>
+                                <div class="flex justify-between items-center">
+                                    <span class="text-xs px-2 py-1 bg-blue-100 text-blue-800 rounded-full">
+                                        {{ report.recommendation }}
+                                    </span>
+                                    <div class="flex space-x-2">
+                                        <button 
+                                            @click="viewHistoryReport(report.path)"
+                                            class="px-3 py-1 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700 transition-colors">
+                                            查看
+                                        </button>
+                                        <button 
+                                            @click="viewDebateProcess(report.stockCode)"
+                                            class="px-3 py-1 bg-green-600 text-white text-xs rounded-lg hover:bg-green-700 transition-colors"
+                                            title="查看讨论流程">
+                                            流程
+                                        </button>
+                                        <button 
+                                            @click="deleteReport(report.path, report.stockCode)"
+                                            class="px-3 py-1 bg-red-600 text-white text-xs rounded-lg hover:bg-red-700 transition-colors"
+                                            title="删除报告">
+                                            删除
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+        <script src="app.js?v=2.0&t=20250108"></script>
+</body>
+</html>

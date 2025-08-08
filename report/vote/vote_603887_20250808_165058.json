@@ -1,0 +1,22 @@
+{
+  "stock_code": "603887",
+  "timestamp": "20250808_165058",
+  "final_decision": "bullish",
+  "vote_count": {
+    "bullish": 5,
+    "bearish": 1
+  },
+  "agent_order": [
+    "sentiment_agent",
+    "risk_control_agent",
+    "hot_money_agent",
+    "technical_analysis_agent",
+    "chip_analysis_agent",
+    "big_deal_analysis_agent"
+  ],
+  "vote_details": {
+    "bullish": 5,
+    "bearish": 1,
+    "total_agents": 6
+  }
+}

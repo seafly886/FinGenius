@@ -36,11 +36,11 @@ class EnhancedFinGeniusAnalyzer:
             visualizer.show_logo()
             
             # Show analysis start
-            visualizer.show_section_header("开始股票分析", "[START]")
+            visualizer.show_section_header("开始股票分析", "[开始]")
             visualizer.show_progress_update("初始化分析环境", f"目标股票: {stock_code}")
             
             # Research phase
-            visualizer.show_section_header("研究阶段", "[RESEARCH]")
+            visualizer.show_section_header("研究阶段", "[研究]")
             research_results = await self._run_research_phase(stock_code, max_steps)
             
             if not research_results:
@@ -51,7 +51,7 @@ class EnhancedFinGeniusAnalyzer:
             visualizer.show_research_summary(research_results)
             
             # Battle phase
-            visualizer.show_section_header("专家辩论阶段", "[BATTLE]")
+            visualizer.show_section_header("专家辩论阶段", "[辩论]")
             battle_results = await self._run_battle_phase(research_results, max_steps, debate_rounds)
             
             if battle_results:
@@ -97,7 +97,7 @@ class EnhancedFinGeniusAnalyzer:
                     visualizer.show_progress_update(f"注册研究员", f"专家: {agent.name}")
             
             # Run research with tool call visualization
-            visualizer.show_progress_update("开始深度研究", "多专家顺序分析中（每3秒一个）...")
+            visualizer.show_progress_update("开始深度研究", "多专家顺序分析中...")
             
             # Enhance agents with visualization
             self._enhance_agents_with_visualization(research_env)
@@ -190,142 +190,76 @@ class EnhancedFinGeniusAnalyzer:
             battle_env._broadcast_message = enhanced_broadcast
 
     async def _generate_reports(self, stock_code: str, research_result: Dict[str, Any], battle_result: Dict[str, Any]):
-        """Generate reports with progress visualization and HTML completion validation"""
+        """Generate reports with progress visualization"""
         try:
             visualizer.show_progress_update("生成分析报告", "创建HTML报告和JSON数据...")
             
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             
-            # Generate HTML report with completion validation
-            logger.info("开始生成HTML报告...")
-            report_agent = await ReportAgent.create(max_steps=5)  # 增加步数确保完成
+            # Generate HTML report
+            logger.info("生成HTML报告...")
+            report_agent = await ReportAgent.create(max_steps=3)
             
-            # Prepare comprehensive report data
-            comprehensive_data = {
-                "stock_code": stock_code,
-                "timestamp": timestamp,
-                "research_results": research_result,
-                "battle_results": battle_result,
-                "vote_results": {
-                    "bullish": battle_result.get('vote_count', {}).get('bullish', 0),
-                    "bearish": battle_result.get('vote_count', {}).get('bearish', 0),
-                    "final_decision": battle_result.get('final_decision', 'unknown')
-                },
-                "debate_history": battle_result.get('debate_history', [])
-            }
+            # Prepare report data
+            summary = "\n\n".join([
+                f"金融专家对{stock_code}的研究结果如下：",
+                f"情感分析：{research_result.get('sentiment', '暂无数据')}",
+                f"风险分析：{research_result.get('risk', '暂无数据')}",
+                f"游资分析：{research_result.get('hot_money', '暂无数据')}",
+                f"技术面分析：{research_result.get('technical', '暂无数据')}",
+                f"筹码分析：{research_result.get('chip_analysis', '暂无数据')}",
+                f"大单异动分析：{research_result.get('big_deal', '暂无数据')}",
+                f"博弈结果：{battle_result.get('final_decision', '无结果')}",
+                f"投票统计：{battle_result.get('vote_count', {})}"
+            ])
             
             # Calculate vote percentages
-            bull_cnt = comprehensive_data["vote_results"]["bullish"]
-            bear_cnt = comprehensive_data["vote_results"]["bearish"]
+            bull_cnt = battle_result.get('vote_count', {}).get('bullish', 0)
+            bear_cnt = battle_result.get('vote_count', {}).get('bearish', 0)
             total_votes = bull_cnt + bear_cnt
             bull_pct = round(bull_cnt / total_votes * 100, 1) if total_votes else 0
             bear_pct = round(bear_cnt / total_votes * 100, 1) if total_votes else 0
 
-            # Generate HTML report with enhanced request
-            html_filename = f"html_{stock_code}_{timestamp}.html"
-            html_path = f"report/html/{html_filename}"
+            # Generate HTML report
+            html_filename = f"report_{stock_code}_{timestamp}.html"
+            html_path = f"report/{html_filename}"
 
             html_request = f"""
-            请基于提供的数据生成一个完整的FinGenius股票分析HTML报告。
-
-            ## 核心要求：
-            1. **必须生成完整的HTML文件**，包含完整的DOCTYPE、html、head、body结构
-            2. **必须包含数据注入点**，用于动态加载报告数据
-            3. **必须完整渲染所有辩论历史**，不得省略任何发言记录
-            4. **必须包含响应式设计**，支持移动端和桌面端
-            5. **必须包含免责声明**，位于页面底部
-
-            ## 股票信息：
-            - 股票代码：{stock_code}
-            - 分析时间：{timestamp}
-            - 最终结论：{battle_result.get('final_decision', '未知')}
-            - 看涨票数：{bull_cnt}票（{bull_pct}%）
-            - 看跌票数：{bear_cnt}票（{bear_pct}%）
-            - 辩论轮次：{len(battle_result.get('debate_history', []))}条记录
-
-            ## 页面结构要求：
-            1. **导航栏**：包含概览、分析、辩论、声明的锚点链接
-            2. **概览部分**：股票信息、投票结果可视化
-            3. **分析部分**：6个专家的分析结果（手风琴式展开）
-            4. **辩论部分**：完整的时间线展示所有辩论记录
-            5. **免责声明**：AI生成报告的法律声明
-
-            ## 技术要求：
-            - 使用Bootstrap 5.3.3 + FontAwesome 6.5.0
-            - 包含深色模式切换功能
-            - 包含回到顶部按钮
-            - 包含平滑滚动效果
-            - 必须包含数据注入JavaScript代码
-
-            ## 数据结构说明：
-            报告数据将通过JavaScript注入，数据结构如下：
-            - reportData.stock_code: 股票代码
-            - reportData.vote_results: 投票结果对象
-            - reportData.research_results: 研究结果对象
-            - reportData.debate_history: 辩论历史数组
-            - reportData.battle_results: 战斗结果对象
-
-            请确保生成的HTML文件完整、美观、功能齐全，能够正确显示所有提供的数据。
-            """
+            基于股票{stock_code}的综合分析，生成一份美观的HTML报告。
             
-            html_generation_success = False
-            html_validation_passed = False
+            请在报告中包含以下模块，并按顺序呈现：
+            1. 标题及股票基本信息
+            2. 博弈结果与投票统计（先展示投票结论与统计）
+               • 最终结论：{battle_result.get('final_decision', '未知')}
+               • 看涨票数：{bull_cnt}（{bull_pct}%）
+               • 看跌票数：{bear_cnt}（{bear_pct}%）
+            3. 各项研究分析结果（情感、风险、游资、技术面、筹码、大单异动）
+            4. 辩论对话过程：按照时间顺序，以聊天气泡或时间线形式展示 `battle_results.debate_history` 中的发言，**必须完整呈现全部发言，不得删减省略**；清晰标注轮次、专家名称、发言内容与时间戳。
+            5. 任何你认为有助于读者理解的图表或可视化。
+            
+            重要：请确保页面最底部保留 AI 免责声明。
+            """
             
             try:
                 if report_agent and report_agent.available_tools:
-                    visualizer.show_progress_update("调用HTML生成工具", "正在生成完整HTML报告...")
-                    
-                    # 执行HTML生成
-                    # 使用数据外部化方案生成HTML报告
-                    from src.tool.create_html_external import create_html_with_external_data
-                    
-                    try:
-                        html_path, data_path = create_html_with_external_data(
-                            stock_code=stock_code,
-                            data=comprehensive_data
-                        )
-                        
-                        # 创建成功结果对象
-                        class HTMLResult:
-                            def __init__(self, success=True, error=None):
-                                self.error = error
-                                self.success = success
-                        
-                        html_result = HTMLResult(success=True, error=None)
-                        visualizer.show_progress_update("HTML生成成功", f"文件: {html_path}")
-                        visualizer.show_progress_update("数据文件生成", f"文件: {data_path}")
-                        
-                    except Exception as e:
-                        html_result = HTMLResult(success=False, error=str(e))
-                        logger.error(f"数据外部化HTML生成失败: {str(e)}")
-                    
-                    # 检查HTML生成结果
-                    if html_result and not html_result.error:
-                        html_generation_success = True
-                        visualizer.show_progress_update("HTML生成成功", f"文件: {html_path}")
-                        
-                        # 验证HTML文件完整性
-                        html_validation_passed = await self._validate_html_completion(html_path, comprehensive_data)
-                        
-                        if html_validation_passed:
-                            visualizer.show_progress_update("HTML验证通过", "报告文件完整且包含所有数据")
-                        else:
-                            visualizer.show_progress_update("HTML验证警告", "报告文件可能不完整，但已生成")
-                    else:
-                        error_msg = html_result.error if html_result else "未知错误"
-                        logger.error(f"HTML生成失败: {error_msg}")
-                        visualizer.show_progress_update("HTML生成失败", f"错误: {error_msg}")
+                    await report_agent.available_tools.execute(
+                        name="create_html",
+                        tool_input={
+                            "request": html_request,
+                            "output_path": html_path,
+                            "data": {
+                                "stock_code": stock_code,
+                                "research_results": research_result,
+                                "battle_results": battle_result,
+                                "timestamp": timestamp
+                            }
+                        }
+                    )
+                    visualizer.show_progress_update("HTML报告生成完成", f"文件: {html_path}")
                 else:
                     logger.error("无法创建报告Agent或工具集")
-                    visualizer.show_progress_update("HTML生成失败", "无法创建报告工具")
-                    
             except Exception as e:
-                logger.error(f"HTML生成过程异常: {str(e)}")
-                visualizer.show_progress_update("HTML生成异常", f"错误: {str(e)}")
-
-            # 只有在HTML生成成功后才继续保存其他报告
-            if html_generation_success:
-                visualizer.show_progress_update("保存辅助数据", "保存辩论和投票JSON文件...")
+                logger.error(f"生成HTML报告失败: {str(e)}")
             
             # Save debate JSON
             visualizer.show_progress_update("保存辩论记录", "JSON格式...")
@@ -377,39 +311,6 @@ class EnhancedFinGeniusAnalyzer:
             
         except Exception as e:
             visualizer.show_error(f"生成报告失败: {str(e)}")
-
-    async def _validate_html_completion(self, html_path: str, expected_data: Dict[str, Any]) -> bool:
-        """验证HTML文件是否完整生成并包含必要数据"""
-        try:
-            from src.utils.html_validator import html_validator
-            
-            # 使用专门的HTML验证器
-            is_valid, message = await html_validator.validate_html_completion(html_path, expected_data)
-            
-            if is_valid:
-                logger.info(f"HTML验证成功: {message}")
-                visualizer.show_progress_update("HTML验证通过", message)
-                
-                # 获取HTML摘要信息
-                summary = html_validator.get_html_summary(html_path)
-                if "error" not in summary:
-                    logger.info(f"HTML文件摘要: 大小={summary['file_size']}字节, "
-                              f"包含Bootstrap={summary['has_bootstrap']}, "
-                              f"包含数据注入={summary['has_data_injection']}, "
-                              f"包含时间线={summary['has_timeline']}")
-                
-                return True
-            else:
-                logger.warning(f"HTML验证失败: {message}")
-                visualizer.show_progress_update("HTML验证警告", message)
-                # 即使验证失败，也不阻止流程继续，但记录警告
-                return False
-                
-        except Exception as e:
-            logger.error(f"HTML验证过程异常: {str(e)}")
-            visualizer.show_progress_update("HTML验证异常", f"验证过程出错: {str(e)}")
-            # 验证异常时，假设HTML生成成功，避免阻止流程
-            return True
 
     def _prepare_final_results(self, stock_code: str, research_results: Dict[str, Any], battle_results: Dict[str, Any]) -> Dict[str, Any]:
         """Prepare final analysis results"""

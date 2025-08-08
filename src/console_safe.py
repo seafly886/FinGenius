@@ -21,24 +21,12 @@ import time
 def create_safe_console():
     """创建Windows安全的控制台，避免编码问题"""
     if sys.platform == "win32":
-        # Windows系统使用安全模式，强制UTF-8编码
-        try:
-            # 尝试设置控制台编码为UTF-8
-            import locale
-            import codecs
-            
-            # 设置系统编码
-            sys.stdout = codecs.getwriter('utf-8')(sys.stdout.detach())
-            sys.stderr = codecs.getwriter('utf-8')(sys.stderr.detach())
-        except Exception:
-            pass  # 如果设置失败，继续使用默认设置
-        
+        # Windows系统使用安全模式
         return Console(
             force_terminal=True, 
             legacy_windows=True,
             width=120,
-            no_color=False,
-            file=sys.stdout
+            no_color=False
         )
     else:
         return Console()
@@ -84,31 +72,10 @@ class FinGeniusVisualizer:
             '\u2018': "'",    # left single quote
             '\u2019': "'",    # right single quote
             '\u2026': '...',  # ellipsis
-            '\xee': '',       # 修复特定的\xee字符
-            '\uf8ff': '',     # Apple logo字符
-            '\u200b': '',     # zero-width space
-            '\u200c': '',     # zero-width non-joiner
-            '\u200d': '',     # zero-width joiner
-            '\ufeff': '',     # byte order mark
         }
         
         for old_char, new_char in replacements.items():
             text = text.replace(old_char, new_char)
-        
-        # 额外的安全处理：移除所有不能被GBK编码的字符
-        try:
-            # 尝试编码为GBK，如果失败则替换问题字符
-            text.encode('gbk')
-        except UnicodeEncodeError as e:
-            # 找到问题字符并替换
-            clean_chars = []
-            for char in text:
-                try:
-                    char.encode('gbk')
-                    clean_chars.append(char)
-                except UnicodeEncodeError:
-                    clean_chars.append('?')  # 替换为问号
-            text = ''.join(clean_chars)
         
         return text
     
@@ -429,40 +396,6 @@ class FinGeniusVisualizer:
         except Exception:
             print(f"\n[分析结果] {friendly_name}:")
             print(f"{display_content}")
-
-    def show_debate_message(self, agent_name: str, message: str, message_type: str = "speak"):
-        """Display debate message - 新增方法"""
-        friendly_name = self._get_friendly_agent_name(agent_name)
-        clean_message = self._clean_text(message)
-        
-        # 根据消息类型设置样式
-        if message_type == "vote":
-            title = f"[投票] {friendly_name} 投票"
-            style = "yellow"
-            emoji = "[投票]"
-        elif message_type == "speak":
-            title = f"[发言] {friendly_name} 发言"
-            style = "blue"
-            emoji = "[发言]"
-        else:
-            title = f"[消息] {friendly_name} 消息"
-            style = "white"
-            emoji = "[消息]"
-        
-        content = f"{emoji} {clean_message}"
-        
-        try:
-            panel = Panel(
-                content,
-                title=title,
-                title_align="left",
-                border_style=style,
-                box=ROUNDED,
-                padding=(1, 2)
-            )
-            console.print(panel)
-        except Exception:
-            print(f"\n{title}: {clean_message}")
 
     def show_debate_summary(self, debate_results: Dict[str, Any]):
         """Display debate summary - 安全版本"""

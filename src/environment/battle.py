@@ -316,12 +316,12 @@ class BattleEnvironment(BaseEnvironment):
         
         # 添加各专家的详细分析
         expert_analyses = {
-            "sentiment": "🧠 市场情绪分析师",
-            "risk": "🛡️ 风险控制专家", 
-            "hot_money": "💰 游资分析师",
-            "technical": "📈 技术分析师",
-            "chip_analysis": "🔍 筹码分析师",
-            "big_deal": "💹 大单分析师"
+            "sentiment": "[情绪] 市场情绪分析师",
+            "risk": "[风控] 风险控制专家", 
+            "hot_money": "[游资] 游资分析师",
+            "technical": "[技术] 技术分析师",
+            "chip_analysis": "[筹码] 筹码分析师",
+            "big_deal": "[大单] 大单分析师"
         }
         
         for analysis_key, expert_name in expert_analyses.items():
