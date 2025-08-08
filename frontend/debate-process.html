@@ -303,7 +303,7 @@
                                 </div>
                                 <div class="debate-content" v-html="formatContent(item.content)"></div>
                                 <div class="mt-3 text-xs text-gray-400">
-                                    第 {{ item.round }} 轮 · {{ item.messages }} 条发言
+                                    第 {{ item.round }} 轮发言
                                 </div>
                             </div>
                             <div :class="getAgentAvatarClass(item.agent_id)" class="agent-avatar">
@@ -348,36 +348,29 @@
                 groupedDebates() {
                     if (!this.debateData || !this.debateData.debate_history) return [];
                     
-                    // 按智能体分组辩论内容
-                    const grouped = {};
-                    this.debateData.debate_history.forEach(item => {
-                        if (!grouped[item.agent_id]) {
-                            grouped[item.agent_id] = {
-                                agent_id: item.agent_id,
-                                messages: 0,
-                                content: '',
-                                timestamp: item.timestamp,
-                                round: item.round,
-                                stance: this.getAgentStance(item.agent_id)
-                            };
+                    // 不再按智能体分组，而是显示所有发言记录
+                    const allDebates = this.debateData.debate_history.map(item => ({
+                        agent_id: item.agent_id,
+                        content: item.content,
+                        timestamp: item.timestamp,
+                        round: item.round,
+                        messages: 1, // 每条记录都是1条发言
+                        stance: this.getAgentStance(item.agent_id)
+                    }));
+                    
+                    // 按轮次和时间排序
+                    allDebates.sort((a, b) => {
+                        // 首先按轮次排序
+                        if (a.round !== b.round) {
+                            return a.round - b.round;
                         }
-                        grouped[item.agent_id].messages++;
-                        if (item.content && item.content.length > grouped[item.agent_id].content.length) {
-                            grouped[item.agent_id].content = item.content;
-                        }
+                        // 同一轮次内按智能体顺序排序
+                        const orderA = this.debateData.agent_order ? this.debateData.agent_order.indexOf(a.agent_id) : 0;
+                        const orderB = this.debateData.agent_order ? this.debateData.agent_order.indexOf(b.agent_id) : 0;
+                        return orderA - orderB;
                     });
                     
-                    // 按agent_order排序
-                    const result = [];
-                    if (this.debateData.agent_order) {
-                        this.debateData.agent_order.forEach(agentId => {
-                            if (grouped[agentId]) {
-                                result.push(grouped[agentId]);
-                            }
-                        });
-                    }
-                    
-                    return result;
+                    return allDebates;
                 }
             },
             methods: {

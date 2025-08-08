@@ -378,14 +378,26 @@ def create_html_template() -> str:
             try {
                 // 从URL获取报告路径
                 const urlParams = new URLSearchParams(window.location.search);
-                const reportPath = urlParams.get('report') || window.location.pathname.split('/').pop();
+                let reportPath = urlParams.get('report') || window.location.pathname.split('/').pop();
                 
                 if (reportPath && reportPath !== 'index.html') {
+                    // 将HTML文件名转换为对应的JSON数据文件名
+                    let dataFileName = reportPath;
+                    if (reportPath.startsWith('html_') && reportPath.endsWith('.html')) {
+                        dataFileName = reportPath.replace('html_', 'data_').replace('.html', '.json');
+                    }
+                    
+                    console.log('请求数据文件:', dataFileName);
+                    
                     // 通过API加载数据
-                    const response = await fetch(`/api/report-data/${encodeURIComponent(reportPath)}`);
+                    const response = await fetch(`/api/report-data/${encodeURIComponent(dataFileName)}`);
                     if (response.ok) {
                         reportData = await response.json();
                         initializeReport(reportData);
+                        return;
+                    } else {
+                        console.error('API请求失败:', response.status, response.statusText);
+                        showError(`数据加载失败: ${response.status} ${response.statusText}`);
                         return;
                     }
                 }

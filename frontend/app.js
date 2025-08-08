@@ -27,8 +27,8 @@ createApp({
                 format: 'text',
                 output: '',
                 tts: false,
-                maxSteps: 3,
-                debateRounds: 2
+                maxSteps: 10,
+                debateRounds: 3
             }
         }
     },

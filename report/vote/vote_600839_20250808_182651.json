@@ -1,0 +1,22 @@
+{
+  "stock_code": "600839",
+  "timestamp": "20250808_182651",
+  "final_decision": "bearish",
+  "vote_count": {
+    "bullish": 0,
+    "bearish": 6
+  },
+  "agent_order": [
+    "sentiment_agent",
+    "risk_control_agent",
+    "hot_money_agent",
+    "technical_analysis_agent",
+    "chip_analysis_agent",
+    "big_deal_analysis_agent"
+  ],
+  "vote_details": {
+    "bullish": 0,
+    "bearish": 6,
+    "total_agents": 6
+  }
+}
