@@ -12,6 +12,7 @@ import time
 import socket
 import webbrowser
 import platform
+import threading
 from pathlib import Path
 
 # 设置控制台编码为UTF-8
@@ -145,7 +146,8 @@ def start_server():
     print("[4/4] 启动 Web 服务器...")
     print("[🚀] 服务器启动中...")
     print("[🌐] 访问地址: http://localhost:8000")
-    print()
+    print("[📝] 服务器日志输出:")
+    print("-" * 50)
     
     # 切换到backend目录并启动服务器
     backend_dir = Path("backend")
@@ -154,27 +156,43 @@ def start_server():
         return False
     
     try:
-        # 启动服务器进程
+        # 启动服务器进程，显示日志输出
         if platform.system() == 'Windows':
-            # Windows系统使用CREATE_NO_WINDOW标志
+            # Windows系统，显示输出
             process = subprocess.Popen(
                 [sys.executable, 'server.py'],
                 cwd=str(backend_dir),
-                creationflags=subprocess.CREATE_NO_WINDOW
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                universal_newlines=True
             )
         else:
-            # Unix系统
+            # Unix系统，显示输出
             process = subprocess.Popen(
                 [sys.executable, 'server.py'],
                 cwd=str(backend_dir),
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                universal_newlines=True
             )
         
         return process
     except Exception as e:
         print(f"[❌] 启动服务器失败: {e}")
         return None
+
+def read_server_output(process):
+    """读取并显示服务器输出"""
+    while True:
+        output = process.stdout.readline()
+        if output == '' and process.poll() is not None:
+            break
+        if output:
+            print(f"[服务器] {output.strip()}")
 
 def open_browser(url="http://localhost:8000"):
     """打开浏览器"""
@@ -210,19 +228,24 @@ def main():
     if not server_process:
         return 1
     
+    # 启动线程读取服务器输出
+    output_thread = threading.Thread(target=read_server_output, args=(server_process,))
+    output_thread.daemon = True
+    output_thread.start()
+    
     # 等待服务器启动
     if not wait_for_server():
         server_process.terminate()
         return 1
     
-    # 打开浏览器
-    open_browser()
+    # 不打开浏览器
+    # open_browser()
     
     print()
     print("=" * 80)
     print("[✅] FinGenius 股票分析系统已成功启动！")
-    print("[🌐] 浏览器地址: http://localhost:8000")
-    print("[📊] 现在可以开始股票分析了")
+    print("[🌐] 服务器地址: http://localhost:8000")
+    print("[📊] 请在浏览器中访问上述地址开始股票分析")
     print("[❌] 关闭此窗口不会影响服务器运行")
     print("=" * 80)
     
