@@ -29,7 +29,23 @@ createApp({
                 tts: false,
                 maxSteps: 10,
                 debateRounds: 3
-            }
+            },
+            
+            // 聊天功能
+            chatMode: 'single',
+            selectedAgent: '',
+            selectedGroupAgents: [],
+            chatMessage: '',
+            isChatting: false,
+            chatMessages: [],
+            availableAgents: [
+                { value: 'big_deal_analysis', label: '大单异动分析智能体' },
+                { value: 'chip_analysis', label: '筹码分析智能体' },
+                { value: 'hot_money', label: '游资分析智能体' },
+                { value: 'risk_control', label: '风险控制智能体' },
+                { value: 'sentiment', label: '舆情分析智能体' },
+                { value: 'technical_analysis', label: '技术分析智能体' }
+            ]
         }
     },
     methods: {
@@ -360,6 +376,97 @@ createApp({
         viewDebateProcess(stockCode) {
             // 在新窗口中打开讨论流程页面
             window.open(`/debate-process.html?stock=${stockCode}`, '_blank');
+        },
+
+        // 发送聊天消息
+        async sendMessage() {
+            if (!this.chatMessage.trim()) {
+                alert('请输入消息内容');
+                return;
+            }
+
+            if (this.chatMode === 'single' && !this.selectedAgent) {
+                alert('请选择智能体');
+                return;
+            }
+
+            if (this.chatMode === 'group' && this.selectedGroupAgents.length === 0) {
+                alert('请选择至少一个智能体参与群聊');
+                return;
+            }
+
+            this.isChatting = true;
+
+            // 添加用户消息到聊天记录
+            this.addChatMessage('user', '您', this.chatMessage);
+
+            try {
+                let response;
+                if (this.chatMode === 'single') {
+                    // 单独聊天模式
+                    response = await axios.post('/api/chat/single', {
+                        agent: this.selectedAgent,
+                        message: this.chatMessage
+                    });
+                } else {
+                    // 群聊模式
+                    response = await axios.post('/api/chat/group', {
+                        agents: this.selectedGroupAgents,
+                        message: this.chatMessage
+                    });
+                }
+
+                if (response.data.success) {
+                    // 处理智能体回复
+                    if (this.chatMode === 'single') {
+                        this.addChatMessage('agent', this.getAgentName(this.selectedAgent), response.data.response);
+                    } else {
+                        // 群聊模式下，显示所有智能体的回复
+                        response.data.responses.forEach(resp => {
+                            this.addChatMessage('agent', this.getAgentName(resp.agent), resp.response);
+                        });
+                    }
+                } else {
+                    throw new Error(response.data.error || '聊天失败');
+                }
+            } catch (error) {
+                console.error('聊天失败:', error);
+                this.addChatMessage('system', '系统', `错误: ${error.message}`);
+            } finally {
+                this.isChatting = false;
+                this.chatMessage = '';
+            }
+        },
+
+        // 添加聊天消息
+        addChatMessage(type, agentName, content) {
+            this.chatMessages.push({
+                type: type,
+                agentName: agentName,
+                content: content,
+                timestamp: new Date().toLocaleTimeString()
+            });
+            
+            // 滚动到底部
+            this.$nextTick(() => {
+                const container = this.$refs.chatContainer;
+                if (container) {
+                    container.scrollTop = container.scrollHeight;
+                }
+            });
+        },
+
+        // 清空聊天记录
+        clearChat() {
+            if (confirm('确定要清空聊天记录吗？')) {
+                this.chatMessages = [];
+            }
+        },
+
+        // 获取智能体名称
+        getAgentName(agentValue) {
+            const agent = this.availableAgents.find(a => a.value === agentValue);
+            return agent ? agent.label : agentValue;
         }
     },
 

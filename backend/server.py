@@ -19,6 +19,9 @@ from starlette.requests import Request
 import queue
 import threading
 
+# 导入聊天处理器
+from chat_handler import handle_single_chat, handle_group_chat
+
 # 全局会话存储
 active_sessions: Dict[str, Dict[str, Any]] = {}
 
@@ -968,6 +971,9 @@ routes = [
     Route('/api/reports/delete', delete_report, methods=['POST']),
     Route('/api/debate/{stock_code}', get_debate_data, methods=['GET']),
     Route('/api/report-data/{data_path:path}', get_report_data, methods=['GET']),
+    # 聊天功能API
+    Route('/api/chat/single', handle_single_chat, methods=['POST']),
+    Route('/api/chat/group', handle_group_chat, methods=['POST']),
     # 静态文件路由 - 报告文件
     Mount('/report', StaticFiles(directory=Path(__file__).parent.parent / 'report'), name='reports'),
     # 静态文件路由 - 前端文件（使用无缓存版本）
