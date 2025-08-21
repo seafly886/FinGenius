@@ -8,6 +8,7 @@ import subprocess
 import queue
 import threading
 import uuid
+from starlette.responses import JSONResponse
 
 # 添加项目根目录到Python路径
 project_root = Path(__file__).parent.parent
@@ -163,10 +164,10 @@ async def handle_single_chat(request):
         message = data.get('message', '').strip()
         
         if not agent:
-            return {'success': False, 'error': '请选择智能体'}
+            return JSONResponse({'success': False, 'error': '请选择智能体'})
         
         if not message:
-            return {'success': False, 'error': '消息内容不能为空'}
+            return JSONResponse({'success': False, 'error': '消息内容不能为空'})
         
         # 创建新的聊天会话
         session_id = str(uuid.uuid4())
@@ -181,19 +182,19 @@ async def handle_single_chat(request):
             await asyncio.sleep(0.1)
         
         if session.error:
-            return {'success': False, 'error': session.error}
+            return JSONResponse({'success': False, 'error': session.error})
         
         # 返回第一个响应（单个智能体聊天只有一个响应）
         if session.responses:
-            return {
+            return JSONResponse({
                 'success': True,
                 'response': session.responses[0]['response']
-            }
+            })
         else:
-            return {'success': False, 'error': '未获取到响应'}
+            return JSONResponse({'success': False, 'error': '未获取到响应'})
         
     except Exception as e:
-        return {'success': False, 'error': str(e)}
+        return JSONResponse({'success': False, 'error': str(e)})
 
 async def handle_group_chat(request):
     """处理群聊"""
@@ -203,10 +204,10 @@ async def handle_group_chat(request):
         message = data.get('message', '').strip()
         
         if not agents or len(agents) == 0:
-            return {'success': False, 'error': '请选择至少一个智能体'}
+            return JSONResponse({'success': False, 'error': '请选择至少一个智能体'})
         
         if not message:
-            return {'success': False, 'error': '消息内容不能为空'}
+            return JSONResponse({'success': False, 'error': '消息内容不能为空'})
         
         # 创建新的聊天会话
         session_id = str(uuid.uuid4())
@@ -221,7 +222,7 @@ async def handle_group_chat(request):
             await asyncio.sleep(0.1)
         
         if session.error:
-            return {'success': False, 'error': session.error}
+            return JSONResponse({'success': False, 'error': session.error})
         
         # 返回所有响应
         responses = []
@@ -231,10 +232,10 @@ async def handle_group_chat(request):
                 'response': resp['response']
             })
         
-        return {
+        return JSONResponse({
             'success': True,
             'responses': responses
-        }
+        })
         
     except Exception as e:
-        return {'success': False, 'error': str(e)}
+        return JSONResponse({'success': False, 'error': str(e)})
