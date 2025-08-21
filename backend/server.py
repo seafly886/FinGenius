@@ -20,7 +20,7 @@ import queue
 import threading
 
 # 导入聊天处理器
-from chat_handler import handle_single_chat, handle_group_chat
+from chat_handler import handle_single_chat, handle_group_chat, get_available_models
 
 # 全局会话存储
 active_sessions: Dict[str, Dict[str, Any]] = {}
@@ -974,6 +974,7 @@ routes = [
     # 聊天功能API
     Route('/api/chat/single', handle_single_chat, methods=['POST']),
     Route('/api/chat/group', handle_group_chat, methods=['POST']),
+    Route('/api/chat/models', get_available_models, methods=['GET']),
     # 静态文件路由 - 报告文件
     Mount('/report', StaticFiles(directory=Path(__file__).parent.parent / 'report'), name='reports'),
     # 静态文件路由 - 前端文件（使用无缓存版本）
