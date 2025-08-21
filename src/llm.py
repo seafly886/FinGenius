@@ -209,8 +209,10 @@ class LLM:
         self, config_name: str = "default", llm_config: Optional[LLMSettings] = None
     ):
         if not hasattr(self, "client"):  # Only initialize if not already initialized
-            llm_config = llm_config or config.llm
-            llm_config = llm_config.get(config_name, llm_config["default"])
+            if llm_config is None:
+                # 如果没有传入 llm_config，从 config.llm 中获取
+                llm_config_dict = config.llm
+                llm_config = llm_config_dict.get(config_name, llm_config_dict.get("default"))
             self.model = llm_config.model
             self.max_tokens = llm_config.max_tokens
             self.temperature = llm_config.temperature
